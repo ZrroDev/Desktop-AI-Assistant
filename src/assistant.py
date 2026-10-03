@@ -40,14 +40,16 @@ def main():
         if option == "1":
             question = input("\n" + "Your question: ")
             if question.strip():
-                print("\n" + ask(question))
+                print("\n")
+                ask(question)
             else:
                 print("\n" + "Question is empty")
         elif option == "2":
             question = input("\n" + "Your question about the screenshot: ")
             if not question.strip():
                 question = "Summarize what you see on my screen."
-            print("\n" + ask_about_screen(question))
+            print("\n")
+            ask_about_screen(question)
         elif option == "c":
             clear_history()
             print("\n" + "Chat History was cleared")
@@ -68,34 +70,44 @@ def ask_about_screen(question):
 
 
 def _send(question, image=None):
-    """Send a question (and optional image) to Claude with the chat history."""
+    """Send a question (and optional image) to Claude, print the reply as it streams and return it (None on error)."""
     content = [{"type": "text", "text": question}]
     if image:
         content.insert(0, image)  # Claude works best with the image before the text
 
-    # On API errors return a message without touching the history
+    # Stream the reply as it arrives
+    # On API errors print a message and stop, without touching the history
     try:
-        response = client.messages.create(
+        with client.messages.stream(
             max_tokens=MAX_TOKENS,
             messages=history + [{"role": "user", "content": content}],
             model=MODEL,
             system=SYSTEM_PROMPT,
-        )
+        ) as stream:
+            for text in stream.text_stream:
+                print(text, end="", flush=True)
+            print()
+            response = stream.get_final_message()
     except anthropic.AuthenticationError:
-        return "(Error: invalid or missing API key. Check ANTHROPIC_API_KEY in .env)"
+        print("\n" + "(Error: invalid or missing API key. Check ANTHROPIC_API_KEY in .env)")
+        return
     except anthropic.RateLimitError:
-        return "(Error: too many requests. Wait a moment and try again)"
+        print("\n" + "(Error: too many requests. Wait a moment and try again)")
+        return
     except anthropic.APIConnectionError:
-        return "(Error: could not connect to the API. Check your internet connection)"
+        print("\n" + "(Error: could not connect to the API. Check your internet connection)")
+        return
     except anthropic.APIStatusError as e:
-        return f"(API error {e.status_code}: {e.message})"
+        print("\n" + f"(API error {e.status_code}: {e.message})")
+        return
 
     # Keep only the text blocks of the reply
     answer = "".join(block.text for block in response.content if block.type == "text")
 
     # Don't save empty answers: the API rejects empty messages in the history
     if not answer:
-        return f"(No answer given. Reason: {response.stop_reason})"
+        print(f"(No answer given. Reason: {response.stop_reason})")
+        return
 
     add_to_history(question, answer)
     return answer
