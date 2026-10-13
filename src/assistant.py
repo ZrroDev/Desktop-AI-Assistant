@@ -1,12 +1,10 @@
-"""Terminal chat with Claude that can also send a screenshot of your screen."""
+"""Claude client: send a question (optionally with a screenshot) and keep the chat history."""
 
 import json
 from pathlib import Path
 
 import anthropic
 from dotenv import load_dotenv
-
-from src.screen_capture import capture_screen
 
 # Model settings
 MODEL = "claude-opus-5-5"
@@ -30,46 +28,7 @@ load_dotenv()
 client = anthropic.Anthropic()
 
 
-def main():
-    """Menu loop: ask, ask about the screen, clear history or quit."""
-    load_history()
-
-    while True:
-        option = input("\n" + "Send question (1), Send screenshot + question (2), Clear Chat History (c), Exit (q)? ").strip().lower()
-
-        if option == "1":
-            question = input("\n" + "Your question: ")
-            if question.strip():
-                print("\n")
-                ask(question)
-            else:
-                print("\n" + "Question is empty")
-        elif option == "2":
-            question = input("\n" + "Your question about the screenshot: ")
-            if not question.strip():
-                question = "Summarize what you see on my screen."
-            print("\n")
-            ask_about_screen(question)
-        elif option == "c":
-            clear_history()
-            print("\n" + "Chat History was cleared")
-        elif option == "q":
-            break
-        else:
-            print("\n" + "Invalid option")
-
-
-def ask(question):
-    """Ask Claude a text-only question."""
-    return _send(question, image=None)
-
-
-def ask_about_screen(question):
-    """Take a screenshot and ask Claude about it."""
-    return _send(question, capture_screen())
-
-
-def _send(question, image=None):
+def ask(question, image=None):
     """Send a question (and optional image) to Claude, print the reply as it streams and return it (None on error)."""
     content = [{"type": "text", "text": question}]
     if image:
@@ -162,7 +121,3 @@ def clear_history():
     """Forget the whole conversation, also in HISTORY_FILE."""
     history.clear()
     save_history()
-
-
-if __name__ == "__main__":
-    main()

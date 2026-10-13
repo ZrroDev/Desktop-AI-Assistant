@@ -1,9 +1,12 @@
 """Small input window opened with the global hotkey to ask the assistant."""
 
 import queue
+import threading
 import tkinter as tk
 
+from src.assistant import ask, load_history
 from src.hotkeys import start_hotkey
+from src.screen_capture import capture_screen
 
 POLL_INTERVAL_MS = 100  # How often the Tk thread checks the hotkey queue
 
@@ -39,13 +42,17 @@ class InputWindow:
         # Events sent from the hotkey thread to the Tk thread
         self.events = queue.Queue()
 
+        # Screenshot taken on the hotkey, sent with the next question
+        self.pending_image = None
+
         # Start hidden: the hotkey shows it
         self.root.withdraw()
 
     # --- Lifecycle ---
 
     def run(self):
-        """Start the hotkey listener and the Tk main loop (blocks until quit)."""
+        """Load the chat history, start the hotkey listener and the Tk main loop (blocks until quit)."""
+        load_history()
         self.listener = start_hotkey(lambda: self.events.put("show"))
         self.root.protocol("WM_DELETE_WINDOW", self.quit)  # Window X closes the app
         self._poll()
@@ -66,15 +73,18 @@ class InputWindow:
         self.entry.focus_set()
 
     def on_submit(self, event=None):
-        """Read the question and the capture option, then hide the window."""
+        """Send the question (and the screenshot, if checked) to Claude, then hide the window."""
         question = self.entry.get().strip()
         if not question:
             print("Question is empty")
             return
 
-        # Provisional: step 3 will send this to the assistant
-        print("question: " + question)
-        print(f"include capture? {self.include_capture.get()}")
+        image = self.pending_image if self.include_capture.get() else None
+        self.pending_image = None  # Each screenshot is used only once
+
+        # Ask in a background thread so the window doesn't freeze while Claude answers;
+        # the reply streams to the terminal. daemon=True: it won't keep the app alive on quit
+        threading.Thread(target=ask, args=(question, image), daemon=True).start()
 
         self.entry.delete(0, tk.END)
         self.root.withdraw()
@@ -83,6 +93,7 @@ class InputWindow:
         """Discard the question and hide the window."""
         self.entry.delete(0, tk.END)
         self.root.withdraw()
+        self.pending_image = None
 
     # --- Internal ---
 
@@ -91,6 +102,7 @@ class InputWindow:
         while True:
             try:
                 self.events.get_nowait()
+                self.pending_image = capture_screen()  # Before show(), so the window isn't in it
                 self.show()
             except queue.Empty:
                 break
