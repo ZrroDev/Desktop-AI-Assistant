@@ -45,6 +45,9 @@ class InputWindow:
         # Screenshot taken on the hotkey, sent with the next question
         self.pending_image = None
 
+        # Set while Claude is answering
+        self.busy = threading.Event()
+
         # Start hidden: the hotkey shows it
         self.root.withdraw()
 
@@ -74,17 +77,24 @@ class InputWindow:
 
     def on_submit(self, event=None):
         """Send the question (and the screenshot, if checked) to Claude, then hide the window."""
+        # Only one question at a time: keep the text and screenshot to send
+        if self.busy.is_set():
+            print("Wait, there is an answer incoming")
+            return
+
         question = self.entry.get().strip()
         if not question:
             print("Question is empty")
             return
 
         image = self.pending_image if self.include_capture.get() else None
-        self.pending_image = None  # Each screenshot is used only once
+        self.pending_image = None # Each screenshot is used only once
+                
+        self.busy.set()  # Cleared by _ask_in_background when the answer ends
 
         # Ask in a background thread so the window doesn't freeze while Claude answers;
         # the reply streams to the terminal. daemon=True: it won't keep the app alive on quit
-        threading.Thread(target=ask, args=(question, image), daemon=True).start()
+        threading.Thread(target=self._ask_in_background, args=(question, image), daemon=True).start()
 
         self.entry.delete(0, tk.END)
         self.root.withdraw()
@@ -96,6 +106,13 @@ class InputWindow:
         self.pending_image = None
 
     # --- Internal ---
+
+    def _ask_in_background(self, question, image):
+        """Runs in a worker thread: ask Claude, then mark the assistant as free."""
+        try:
+            ask(question, image)
+        finally:
+            self.busy.clear()
 
     def _poll(self):
         """Handle pending hotkey events, then reschedule itself."""
