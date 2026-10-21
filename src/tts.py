@@ -1,6 +1,7 @@
 """Text-to-speech: speaks sentences one by one in a background thread."""
 
 import queue
+import re
 import threading
 
 import pyttsx3
@@ -23,8 +24,10 @@ class Speaker:
         threading.Thread(target=self._run, daemon=True).start()
 
     def speak(self, text):
-        """Add a sentence to the queue. Returns at once, the worker speaks it."""
-        self.sentences.put(text)
+        """Clean the markdown out of a sentence and queue it. Returns at once, the worker speaks it."""
+        text = self._clean_for_speech(text)
+        if text.strip():  # Skip lines that were only markdown (e.g. "---" or "**")
+            self.sentences.put(text)
 
     # --- Internal ---
 
@@ -50,6 +53,17 @@ class Speaker:
                 engine.setProperty("voice", voice.id)
                 return
         print(f"No '{VOICE_KEYWORD}' voice found, using the default one")
+
+    @staticmethod
+    def _clean_for_speech(text):
+        """Remove the markdown symbols the voice would read out loud."""
+        text = re.sub(r"^\s*[-*_]{3,}\s*$", "", text, flags=re.MULTILINE)  # Horizontal rules (---)
+        text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.MULTILINE)  # List bullets (before \*+, which would eat them)
+        text = re.sub(r"^\s*#+\s*", "", text, flags=re.MULTILINE)     # Headings
+        text = re.sub(r"\*+", "", text)                                # Bold and italics
+        text = re.sub(r"`+", "", text)                                 # Inline code and code blocks
+        text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)          # Links: keep the text, drop the URL
+        return text
 
 
 if __name__ == "__main__":
