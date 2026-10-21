@@ -5,8 +5,10 @@ import threading
 
 import pyttsx3
 
-VOICE_RATE = 180          # Words per minute (pyttsx3 default is 200, too fast in Spanish)
-VOICE_KEYWORD = "spanish" # Text to look for in the installed voice names
+# Voice settings
+VOICE_RATE = 180           # Words per minute (pyttsx3 default is 200, too fast in Spanish)
+VOICE_KEYWORD = "spanish"  # Text to look for in the installed voice names
+LEAD_SILENCE_MS = 200      # Silence before each sentence so the audio device wakes up before the first syllable
 
 
 class Speaker:
@@ -36,10 +38,10 @@ class Speaker:
             engine = pyttsx3.init()
             engine.setProperty("rate", VOICE_RATE)
             self._pick_voice(engine)
-            engine.say(text)
+            engine.say(f'<silence msec="{LEAD_SILENCE_MS}"/>{text}')  # SAPI (Windows) tag
             engine.runAndWait()
             engine.stop()
-            del engine # Drop it so the next init() builds a new one instead of reusing this
+            del engine  # Drop it so the next init() builds a new one instead of reusing this
 
     def _pick_voice(self, engine):
         """Use the first installed voice whose name contains VOICE_KEYWORD."""

@@ -1,10 +1,13 @@
 """Claude client: send a question (optionally with a screenshot) and keep the chat history."""
 
 import json
+import re
 from pathlib import Path
 
 import anthropic
 from dotenv import load_dotenv
+
+from src.tts import Speaker
 
 # Model settings
 MODEL = "claude-opus-5-5"
@@ -27,9 +30,15 @@ load_dotenv()
 # API client (reads the key from the environment)
 client = anthropic.Anthropic()
 
+# Voice output (starts its own worker thread)
+speaker = Speaker()
+
+# A sentence ends at . ! ? followed by a space, or at a line break
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
+
 
 def ask(question, image=None):
-    """Send a question (and optional image) to Claude, print the reply as it streams and return it (None on error)."""
+    """Send a question (and optional image) to Claude, print and speak the reply as it streams and return it (None on error)."""
     content = [{"type": "text", "text": question}]
     if image:
         content.insert(0, image)  # Claude works best with the image before the text
@@ -43,8 +52,20 @@ def ask(question, image=None):
             model=MODEL,
             system=SYSTEM_PROMPT,
         ) as stream:
+            buffer = ""  # Streamed text not spoken yet
             for text in stream.text_stream:
                 print(text, end="", flush=True)
+
+                # Speak each sentence as soon as it is complete, keep the rest for later
+                buffer += text
+                sentences, buffer = _split_sentences(buffer)
+                for sentence in sentences:
+                    if sentence.strip():
+                        speaker.speak(sentence)
+
+            # The last sentence may end without a space after the period
+            if buffer.strip():
+                speaker.speak(buffer)
             print()
             response = stream.get_final_message()
     except anthropic.AuthenticationError:
@@ -70,6 +91,12 @@ def ask(question, image=None):
 
     add_to_history(question, answer)
     return answer
+
+
+def _split_sentences(buffer):
+    """Return (finished sentences, unfinished rest) from the streamed text."""
+    parts = SENTENCE_END.split(buffer)
+    return parts[:-1], parts[-1]
 
 
 def load_history():
