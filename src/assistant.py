@@ -11,7 +11,14 @@ from src.tts import Speaker
 
 # Model settings
 MODEL = "claude-opus-5-5"
-SYSTEM_PROMPT = "Always answer in Spanish."  # PROVISIONAL
+LANGUAGE_PROMPT = "Always answer in Spanish."  # PROVISIONAL
+# Added to the system prompt when the reply will be spoken
+VOICE_PROMPT = (
+    "Your reply will be read aloud by a text-to-speech engine, so write it to be heard, not read. "
+    "Answer in 1 to 3 short sentences of plain conversational text: no markdown, lists, tables, "
+    "code, URLs or emojis. If the question needs a longer answer, give the key point and offer "
+    "to go into more detail."
+)
 MAX_TOKENS = 2048
 
 # Conversation history, sent with every request so Claude keeps context
@@ -37,11 +44,19 @@ speaker = Speaker()
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
-def ask(question, image=None):
-    """Send a question (and optional image) to Claude, print and speak the reply as it streams and return it (None on error)."""
+def ask(question, image=None, voice=False):
+    """Send a question (and optional image) to Claude, print the reply as it streams and return it (None on error).
+
+    With voice=True the reply is also spoken sentence by sentence, and Claude is asked to keep it short.
+    """
     content = [{"type": "text", "text": question}]
     if image:
         content.insert(0, image)  # Claude works best with the image before the text
+
+    # Voice replies get the extra VOICE_PROMPT rules
+    system_prompt = LANGUAGE_PROMPT
+    if voice:
+        system_prompt += "\n" + VOICE_PROMPT
 
     # Stream the reply as it arrives
     # On API errors print a message and stop, without touching the history
@@ -50,21 +65,22 @@ def ask(question, image=None):
             max_tokens=MAX_TOKENS,
             messages=history + [{"role": "user", "content": content}],
             model=MODEL,
-            system=SYSTEM_PROMPT,
+            system=system_prompt,
         ) as stream:
             buffer = ""  # Streamed text not spoken yet
             for text in stream.text_stream:
                 print(text, end="", flush=True)
 
                 # Speak each sentence as soon as it is complete, keep the rest for later
-                buffer += text
-                sentences, buffer = _split_sentences(buffer)
-                for sentence in sentences:
-                    if sentence.strip():
-                        speaker.speak(sentence)
+                if voice:
+                    buffer += text
+                    sentences, buffer = _split_sentences(buffer)
+                    for sentence in sentences:
+                        if sentence.strip():
+                            speaker.speak(sentence)
 
             # The last sentence may end without a space after the period
-            if buffer.strip():
+            if voice and buffer.strip():
                 speaker.speak(buffer)
             print()
             response = stream.get_final_message()
@@ -148,3 +164,4 @@ def clear_history():
     """Forget the whole conversation, also in HISTORY_FILE."""
     history.clear()
     save_history()
+    print("History cleared")

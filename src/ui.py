@@ -4,7 +4,7 @@ import queue
 import threading
 import tkinter as tk
 
-from src.assistant import ask, load_history
+from src.assistant import ask, clear_history, load_history
 from src.hotkeys import start_hotkey
 from src.screen_capture import capture_screen
 
@@ -29,6 +29,11 @@ class InputWindow:
         self.entry = tk.Entry(self.root, width=100)
         self.entry.pack()
         self.entry.focus_set()
+
+        tk.Button(self.root, text="Borrar historial de chat", command=self.on_clear_history).pack()
+
+        self.voice_response = tk.BooleanVar(value=True)
+        tk.Checkbutton(self.root, text="Respuesta por voz", variable=self.voice_response).pack()
 
         self.include_capture = tk.BooleanVar(value=True)
         tk.Checkbutton(self.root, text="Incluir captura", variable=self.include_capture).pack()
@@ -87,14 +92,16 @@ class InputWindow:
             print("Question is empty")
             return
 
+        # Read the checkboxes here: Tk variables can only be used from the main thread
+        voice = self.voice_response.get()
         image = self.pending_image if self.include_capture.get() else None
-        self.pending_image = None # Each screenshot is used only once
-                
+        self.pending_image = None  # Each screenshot is used only once
+
         self.busy.set()  # Cleared by _ask_in_background when the answer ends
 
         # Ask in a background thread so the window doesn't freeze while Claude answers;
-        # the reply streams to the terminal. daemon=True: it won't keep the app alive on quit
-        threading.Thread(target=self._ask_in_background, args=(question, image), daemon=True).start()
+        # the reply streams to the terminal (and is spoken if voice). daemon=True: it won't keep the app alive on quit
+        threading.Thread(target=self._ask_in_background, args=(question, image, voice), daemon=True).start()
 
         self.entry.delete(0, tk.END)
         self.root.withdraw()
@@ -105,12 +112,19 @@ class InputWindow:
         self.root.withdraw()
         self.pending_image = None
 
+    def on_clear_history(self):
+        """Forget the conversation, unless Claude is still answering."""
+        if self.busy.is_set():
+            print("History cannot be cleared while the assistant is busy")
+            return
+        clear_history()
+
     # --- Internal ---
 
-    def _ask_in_background(self, question, image):
+    def _ask_in_background(self, question, image, voice):
         """Runs in a worker thread: ask Claude, then mark the assistant as free."""
         try:
-            ask(question, image)
+            ask(question, image, voice)
         finally:
             self.busy.clear()
 
