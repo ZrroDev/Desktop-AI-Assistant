@@ -29,22 +29,28 @@ class Speaker:
         if text.strip():  # Skip lines that were only markdown (e.g. "---" or "**")
             self.sentences.put(text)
 
+    def wait(self):
+            """Block until every queued sentence has been spoken."""
+            self.sentences.join()
+
     # --- Internal ---
 
     def _run(self):
         """Worker thread: speak each queued sentence with a fresh engine."""
         while True:
             text = self.sentences.get()  # Blocks until there is a sentence
-
-            # pyttsx3 on Windows only speaks on the first runAndWait() of an engine,
-            # so each sentence gets a new one
-            engine = pyttsx3.init()
-            engine.setProperty("rate", VOICE_RATE)
-            self._pick_voice(engine)
-            engine.say(f'<silence msec="{LEAD_SILENCE_MS}"/>{text}')  # SAPI (Windows) tag
-            engine.runAndWait()
-            engine.stop()
-            del engine  # Drop it so the next init() builds a new one instead of reusing this
+            try:
+                # pyttsx3 on Windows only speaks on the first runAndWait() of an engine,
+                # so each sentence gets a new one
+                engine = pyttsx3.init()
+                engine.setProperty("rate", VOICE_RATE)
+                self._pick_voice(engine)
+                engine.say(f'<silence msec="{LEAD_SILENCE_MS}"/>{text}')  # SAPI (Windows) tag
+                engine.runAndWait()
+                engine.stop()
+                del engine  # Drop it so the next init() builds a new one instead of reusing this
+            finally:
+                self.sentences.task_done()  # Done with this sentence, even if the engine failed
 
     def _pick_voice(self, engine):
         """Use the first installed voice whose name contains VOICE_KEYWORD."""

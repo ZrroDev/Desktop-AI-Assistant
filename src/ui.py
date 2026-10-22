@@ -4,12 +4,11 @@ import queue
 import threading
 import tkinter as tk
 
-from src.assistant import ask, clear_history, load_history
+from src.assistant import ask, clear_history, load_history, speaker
 from src.hotkeys import start_hotkey
 from src.screen_capture import capture_screen
 
 POLL_INTERVAL_MS = 100  # How often the Tk thread checks the hotkey queue
-
 
 class InputWindow:
     """Hidden window that shows up on the hotkey to type a question.
@@ -125,6 +124,8 @@ class InputWindow:
         """Runs in a worker thread: ask Claude, then mark the assistant as free."""
         try:
             ask(question, image, voice)
+            if voice:
+                speaker.wait()
         finally:
             self.busy.clear()
 
