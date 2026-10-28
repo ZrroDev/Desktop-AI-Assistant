@@ -5,10 +5,13 @@ import threading
 import tkinter as tk
 
 from src.assistant import ask, clear_history, load_history, speaker
-from src.hotkeys import start_hotkey
+from src.hotkeys import PushToTalk, start_hotkey
 from src.screen_capture import capture_screen
+from src.stt import SAMPLE_RATE, Recorder, transcribe
 
 POLL_INTERVAL_MS = 100  # How often the Tk thread checks the hotkey queue
+
+MIN_RECORDING_SECONDS = 0.3  # Shorter presses (e.g. right Ctrl + C) are ignored
 
 class InputWindow:
     """Hidden window that shows up on the hotkey to type a question.
@@ -52,6 +55,9 @@ class InputWindow:
         # Set while Claude is answering
         self.busy = threading.Event()
 
+        # Microphone recording for push-to-talk
+        self.recorder = Recorder() 
+
         # Start hidden: the hotkey shows it
         self.root.withdraw()
 
@@ -61,6 +67,8 @@ class InputWindow:
         """Load the chat history, start the hotkey listener and the Tk main loop (blocks until quit)."""
         load_history()
         self.listener = start_hotkey(lambda: self.events.put("show"))
+        self.ptt = PushToTalk(lambda: self.events.put("ptt_down"), lambda: self.events.put("ptt_up"))
+        self.ptt.start()
         self.root.protocol("WM_DELETE_WINDOW", self.quit)  # Window X closes the app
         self._poll()
         self.root.mainloop()
@@ -68,6 +76,7 @@ class InputWindow:
     def quit(self):
         """Stop the hotkey listener and close the window, ending mainloop."""
         self.listener.stop()
+        self.ptt.stop()
         self.root.destroy()
 
     # --- Window actions ---
@@ -133,13 +142,35 @@ class InputWindow:
         """Handle pending hotkey events, then reschedule itself."""
         while True:
             try:
-                self.events.get_nowait()
-                self.pending_image = capture_screen()  # Before show(), so the window isn't in it
-                self.show()
+                event = self.events.get_nowait()
+                if event == "show":
+                    self.pending_image = capture_screen()  # Before show(), so the window isn't in it
+                    self.show()
+                elif event == "ptt_down":
+                    if not self.busy.is_set():
+                        self.recorder.start()
+                elif event == "ptt_up":
+                    audio = self.recorder.stop()
+                    if audio.size < MIN_RECORDING_SECONDS * SAMPLE_RATE:
+                        print("No audio recorded")
+                    else:
+                        voice = self.voice_response.get()
+                        self.busy.set()
+                        threading.Thread(target=self._voice_in_background, args=(audio, voice), daemon=True).start()
             except queue.Empty:
                 break
         self.root.after(POLL_INTERVAL_MS, self._poll)
 
+    def _voice_in_background(self, audio, voice):
+        """Runs in a worker thread: transcribe the recording, then ask Claude."""
+        try:
+            text = transcribe(audio)
+            if not text:  # Only silence or noise
+                return
+            print(f"> {text}")
+            self._ask_in_background(text, None, voice)  # Its finally clears busy
+        finally:
+            self.busy.clear()
 
 if __name__ == "__main__":
     InputWindow().run()
