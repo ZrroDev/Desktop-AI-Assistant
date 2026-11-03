@@ -1,8 +1,9 @@
-"""Small input window opened with the global hotkey to ask the assistant."""
+"""Small input window opened with the global hotkey, plus push-to-talk to ask the assistant by voice."""
 
 import queue
 import threading
 import tkinter as tk
+import unicodedata
 
 from src.assistant import ask, clear_history, load_history, speaker
 from src.hotkeys import PushToTalk, start_hotkey
@@ -13,12 +14,24 @@ POLL_INTERVAL_MS = 100  # How often the Tk thread checks the hotkey queue
 
 MIN_RECORDING_SECONDS = 0.3  # Shorter presses (e.g. right Ctrl + C) are ignored
 
-class InputWindow:
-    """Hidden window that shows up on the hotkey to type a question.
+# Spoken phrases that send the screenshot (lowercase, no accents)
+SCREEN_TRIGGERS = ("pantalla", "mira esto", "que ves", "que estoy viendo")
 
-    Tkinter must only be touched from the main thread. The hotkey callback runs
-    in pynput's thread, so it only puts an event in self.events; _poll reads
-    that queue from the main thread and shows the window.
+
+def _wants_screen(text: str) -> bool:
+    """True if the spoken question refers to the screen."""
+    # NFD splits "é" into "e" + accent mark, then the accent marks are dropped
+    clean_text = unicodedata.normalize("NFD", text.lower())
+    clean_text = "".join(c for c in clean_text if not unicodedata.combining(c))
+    return any(trigger in clean_text for trigger in SCREEN_TRIGGERS)
+
+
+class InputWindow:
+    """Hidden window that shows up on the hotkey to type a question; push-to-talk asks by voice.
+
+    Tkinter must only be touched from the main thread. The hotkey and push-to-talk
+    callbacks run in pynput's thread, so they only put an event in self.events;
+    _poll reads that queue from the main thread and shows the window or records.
     """
 
     def __init__(self):
@@ -56,7 +69,10 @@ class InputWindow:
         self.busy = threading.Event()
 
         # Microphone recording for push-to-talk
-        self.recorder = Recorder() 
+        self.recorder = Recorder()
+
+        # Screenshot taken on push-to-talk, sent only if the question mentions the screen
+        self.voice_image = None
 
         # Start hidden: the hotkey shows it
         self.root.withdraw()
@@ -149,28 +165,34 @@ class InputWindow:
                 elif event == "ptt_down":
                     if not self.busy.is_set():
                         self.recorder.start()
+                        self.voice_image = capture_screen()  # What the user sees while asking
                 elif event == "ptt_up":
+                    image = self.voice_image
+                    self.voice_image = None  # Each screenshot is used only once
                     audio = self.recorder.stop()
                     if audio.size < MIN_RECORDING_SECONDS * SAMPLE_RATE:
                         print("No audio recorded")
                     else:
                         voice = self.voice_response.get()
                         self.busy.set()
-                        threading.Thread(target=self._voice_in_background, args=(audio, voice), daemon=True).start()
+                        threading.Thread(target=self._voice_in_background, args=(audio, voice, image), daemon=True).start()
             except queue.Empty:
                 break
         self.root.after(POLL_INTERVAL_MS, self._poll)
 
-    def _voice_in_background(self, audio, voice):
+    def _voice_in_background(self, audio, voice, image):
         """Runs in a worker thread: transcribe the recording, then ask Claude."""
         try:
             text = transcribe(audio)
             if not text:  # Only silence or noise
                 return
             print(f"> {text}")
-            self._ask_in_background(text, None, voice)  # Its finally clears busy
+            if not _wants_screen(text):
+                image = None  # Discarded, it never leaves the computer
+            self._ask_in_background(text, image, voice)
         finally:
             self.busy.clear()
+
 
 if __name__ == "__main__":
     InputWindow().run()
