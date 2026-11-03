@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from sqlalchemy import event
 from sqlmodel import Session, SQLModel, create_engine
 
 # Project root = folder above backend/, no matter where the server is run from
@@ -26,3 +27,11 @@ def get_session():
     """Give each request its own database session and close it afterwards."""
     with Session(engine) as session:
         yield session  # FastAPI resumes here once the response is sent, closing the session
+
+
+@event.listens_for(engine, "connect")
+def _enable_foreign_keys(dbapi_connection, connection_record):
+    """SQLite ignores foreign keys unless each connection turns them on."""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()

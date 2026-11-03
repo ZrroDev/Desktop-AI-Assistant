@@ -21,7 +21,7 @@ class Conversation(SQLModel, table=True):
 
 class Message(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    conversation_id: int = Field(foreign_key="conversation.id", index=True)
+    conversation_id: int = Field(foreign_key="conversation.id", ondelete="CASCADE", index=True)
     role: str  # "user" or "assistant", validated by MessageCreate
     content: str
     created_at: datetime = Field(default_factory=utc_now)
@@ -31,6 +31,10 @@ class Message(SQLModel, table=True):
 
 class ConversationCreate(SQLModel):
     title: str | None = None  # Optional: the default title is used if missing
+
+
+class ConversationUpdate(SQLModel):
+    title: str | None = Field(default=None, min_length=1)  # Only the fields sent are changed
 
 
 class MessageCreate(SQLModel):
