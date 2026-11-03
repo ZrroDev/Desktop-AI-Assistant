@@ -5,7 +5,7 @@ import threading
 import tkinter as tk
 import unicodedata
 
-from src.assistant import ask, clear_history, load_history, speaker
+from src.assistant import ask, new_conversation, load_history, speaker
 from src.hotkeys import PushToTalk, start_hotkey
 from src.screen_capture import capture_screen
 from src.stt import SAMPLE_RATE, Recorder, transcribe
@@ -45,7 +45,7 @@ class InputWindow:
         self.entry.pack()
         self.entry.focus_set()
 
-        tk.Button(self.root, text="Borrar historial de chat", command=self.on_clear_history).pack()
+        tk.Button(self.root, text="Nueva conversación", command=self.on_new_conversation).pack()
 
         self.voice_response = tk.BooleanVar(value=True)
         tk.Checkbutton(self.root, text="Respuesta por voz", variable=self.voice_response).pack()
@@ -136,12 +136,12 @@ class InputWindow:
         self.root.withdraw()
         self.pending_image = None
 
-    def on_clear_history(self):
-        """Forget the conversation, unless Claude is still answering."""
+    def on_new_conversation(self):
+        """Start a new conversation, unless Claude is still answering."""
         if self.busy.is_set():
-            print("History cannot be cleared while the assistant is busy")
+            print("Cannot start a new conversation while the assistant is busy")
             return
-        clear_history()
+        new_conversation()
 
     # --- Internal ---
 

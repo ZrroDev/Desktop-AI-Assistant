@@ -1,12 +1,12 @@
 """Claude client: send a question (optionally with a screenshot) and keep the chat history."""
 
-import json
+import httpx
 import re
-from pathlib import Path
 
 import anthropic
 from dotenv import load_dotenv
 
+from src import api_client
 from src.tts import Speaker
 
 # Model settings
@@ -24,12 +24,7 @@ MAX_TOKENS = 2048
 # Conversation history, sent with every request so Claude keeps context
 history = []
 MAX_HISTORY_TURNS = 10  # 1 turn = question + answer
-
-# Project root = folder above src/, no matter where the program is run from
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-HISTORY_FILE = PROJECT_ROOT / "generated" / "history.json"
-# TODO: when packaging the app, save it in the user data folder instead
-# (platformdirs.user_data_dir), the install folder may be read-only
+conversation_id = None # Current conversation in the backend (None = backend unreachable, not saved)
 
 # Load ANTHROPIC_API_KEY from the .env file
 load_dotenv()
@@ -116,52 +111,49 @@ def _split_sentences(buffer):
 
 
 def load_history():
-    """Restore the conversation saved in HISTORY_FILE, if there is one."""
-    if not HISTORY_FILE.exists():
+    """Continue the latest conversation from the backend, or start one if there are none."""
+    global conversation_id
+    try:
+        conversation = api_client.get_latest_conversation() or api_client.create_conversation()
+        conversation_id = conversation["id"]
+        messages = api_client.get_messages(conversation_id, limit=MAX_HISTORY_TURNS * 2)
+    except httpx.HTTPError as e:
+        print("\n" + f"Backend not available, the chat won't be saved. Error: {e}")
         return
 
-    # A broken or unreadable file shouldn't stop the chat: start a new history
-    try:
-        with HISTORY_FILE.open(encoding="utf-8") as f:
-            history.extend(json.load(f))
-    except (json.JSONDecodeError, OSError) as e:
-        print("\n" + f"Could not load history, starting a new one. Error: {e}")
-        return
-
-    # Trim in case MAX_HISTORY_TURNS was lowered since the last save
-    del history[:-MAX_HISTORY_TURNS * 2]
-
-
-def save_history():
-    """Write the current history to HISTORY_FILE (overwrites it)."""
-    # If saving fails the chat keeps working, the history is still in memory
-    try:
-        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp_file = HISTORY_FILE.with_suffix(".tmp")
-        with tmp_file.open("w", encoding="utf-8") as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
-        tmp_file.replace(HISTORY_FILE)  # Atomic swap: the file is either old or new, never half-written
-    except OSError as e:
-        print("\n" + f"Could not save history: {e}")
+    history.extend({"role": m["role"], "content": m["content"]} for m in messages)
+    # Assistant needs the history to start with a user message
+    while history and history[0]["role"] != "user":
+        history.pop(0)
 
 
 def add_to_history(question, answer):
-    """Save a question/answer pair, drop the oldest turns past the limit and write it to disk."""
-    if MAX_HISTORY_TURNS <= 0:
+    """Keep the turn in memory (last N turns only) and save it in the backend."""
+    if MAX_HISTORY_TURNS > 0:
+        history.append({"role": "user", "content": question})
+        history.append({"role": "assistant", "content": answer})
+        del history[:-MAX_HISTORY_TURNS * 2]
+    _save_turn(question, answer)
+
+
+def _save_turn(question, answer):
+    """Send a question/answer pair to the backend. If it fails the chat keeps working."""
+    if conversation_id is None:
         return
-
-    # Only text is stored (no screenshots) so old images aren't resent every call
-    history.append({"role": "user", "content": question})
-    history.append({"role": "assistant", "content": answer})
-
-    # Keep the last N turns (2 messages each); history always starts with "user"
-    del history[:-MAX_HISTORY_TURNS * 2]
-
-    save_history()
+    try:
+        api_client.add_message(conversation_id, "user", question)
+        api_client.add_message(conversation_id, "assistant", answer)
+    except httpx.HTTPError as e:
+        print("\n" + f"Could not save the messages: {e}")
 
 
-def clear_history():
-    """Forget the whole conversation, also in HISTORY_FILE."""
+def new_conversation():
+    """Start a new conversation. The previous one stays saved in the backend."""
+    global conversation_id
     history.clear()
-    save_history()
-    print("History cleared")
+    try:
+        conversation_id = api_client.create_conversation()["id"]
+    except httpx.HTTPError as e:
+        conversation_id = None
+        print("\n" + f"Could not create a conversation in the backend: {e}")
+    print("New conversation started")

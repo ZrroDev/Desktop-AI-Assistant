@@ -33,11 +33,11 @@ def get_messages(conversation_id, limit=None):
 
 def add_message(conversation_id, role, content):
     """Save one message in the conversation and return it."""
-    json = {
+    body = {
         "role": role,
         "content": content
     }
-    response = http_client.post(f"/conversations/{conversation_id}/messages", json=json)
+    response = http_client.post(f"/conversations/{conversation_id}/messages", json=body)
     response.raise_for_status()
     return response.json()
 
