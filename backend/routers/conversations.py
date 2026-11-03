@@ -1,11 +1,10 @@
-from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
-from backend.db import get_session
+from fastapi import APIRouter
+from sqlmodel import select
+
+from backend.dependencies import ConversationDep, SessionDep
 from backend.models import Conversation, ConversationCreate
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
-SessionDep = Annotated[Session, Depends(get_session)]
 
 @router.post("", status_code=201)
 def create_conversation(data: ConversationCreate, session: SessionDep) -> Conversation:
@@ -22,8 +21,5 @@ def list_conversations(session: SessionDep) -> list[Conversation]:
     return session.exec(select(Conversation).order_by(Conversation.created_at.desc())).all()
 
 @router.get("/{conversation_id}")
-def get_conversation(conversation_id: int, session: SessionDep) -> Conversation:
-    conversation = session.get(Conversation, conversation_id)
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+def get_conversation(conversation: ConversationDep) -> Conversation:
     return conversation
