@@ -24,7 +24,7 @@ def create_conversation(data: ConversationCreate, session: SessionDep) -> Conver
 @router.get("")
 def list_conversations(session: SessionDep) -> list[Conversation]:
     """List all conversations, newest first."""
-    return session.exec(select(Conversation).order_by(Conversation.created_at.desc())).all()
+    return session.exec(select(Conversation).order_by(Conversation.created_at.desc(), Conversation.id.desc())).all()
 
 
 @router.get("/{conversation_id}")
