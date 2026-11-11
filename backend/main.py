@@ -9,7 +9,7 @@ from fastapi import FastAPI
 
 from backend import models  # noqa: F401  (registers the tables before create_db)
 from backend.db import create_db
-from backend.routers import conversations, messages
+from backend.routers import conversations, messages, chat
 
 
 @asynccontextmanager
@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Desktop AI Assistant API", lifespan=lifespan)
 app.include_router(conversations.router)
 app.include_router(messages.router)
+app.include_router(chat.router)
 
 
 @app.get("/health")
