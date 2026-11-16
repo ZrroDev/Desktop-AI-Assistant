@@ -22,7 +22,7 @@ load_dotenv()  # Reads ANTHROPIC_API_KEY from .env
 client = anthropic.Anthropic()
 
 
-def generate_answer(history, question, voice=False):
+def generate_answer(history, question, voice=False, image=None):
     """Send the history plus the new question to the AI and return the answer text."""
     system_prompt = _system_prompt(voice)
 
@@ -31,7 +31,7 @@ def generate_answer(history, question, voice=False):
             model=MODEL,
             max_tokens=MAX_TOKENS,
             system=system_prompt,
-            messages=history + [{"role": "user", "content": question}]
+            messages=history + [_user_message(question, image)]
         )
     except anthropic.APIError as e:
         raise LLMError(str(e)) from e
@@ -39,7 +39,7 @@ def generate_answer(history, question, voice=False):
     return "".join(block.text for block in response.content if block.type == "text")
 
 
-def stream_answer(history, question, voice=False):
+def stream_answer(history, question, voice=False, image=None):
     """Like generate_answer, but yields the answer text piece by piece as it is generated."""
     system_prompt = _system_prompt(voice)
 
@@ -47,7 +47,7 @@ def stream_answer(history, question, voice=False):
         model=MODEL,
         max_tokens=MAX_TOKENS,
         system=system_prompt,
-        messages=history + [{"role": "user", "content": question}]
+        messages=history + [_user_message(question, image)]
     ) as stream:
         yield from stream.text_stream
 
@@ -58,3 +58,13 @@ def _system_prompt(voice):
     if voice:
         system_prompt += "\n" + VOICE_PROMPT
     return system_prompt
+
+
+def _user_message(question, image=None):
+    """Build the new user message, with the screenshot before the text if there is one."""
+    content = [{"type": "text", "text": question}]
+    if image: content.insert(0, {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": image},
+    })
+    return {"role": "user", "content": content}

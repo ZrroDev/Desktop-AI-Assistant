@@ -16,6 +16,7 @@ router = APIRouter(prefix="/conversations/{conversation_id}/chat", tags=["chat"]
 class ChatRequest(SQLModel):
     question: str = Field(min_length=1)
     voice: bool = False
+    image: str | None = None # Screenshot as base64 PNG, used only for this question (never saved)
 
 
 @router.post("")
@@ -24,7 +25,7 @@ def chat(conversation: ConversationDep, data: ChatRequest, session: SessionDep) 
     history = _load_history(conversation.id, session)
 
     try:
-        answer = generate_answer(history, data.question, data.voice)
+        answer = generate_answer(history, data.question, data.voice, data.image)
     except LLMError as e:
         raise HTTPException(status_code=502, detail=f"Assistant API error: {e}")
     if not answer:
@@ -47,7 +48,7 @@ def chat_stream(conversation: ConversationDep, data: ChatRequest, session: Sessi
 
     def generate():
         chunks = []
-        for text in stream_answer(history, data.question, data.voice):
+        for text in stream_answer(history, data.question, data.voice, data.image):
             chunks.append(text)
             yield text  # Sent to the client right away
         answer = "".join(chunks)

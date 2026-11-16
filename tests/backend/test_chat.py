@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.llm_service import LLMError
+from backend.llm_service import LLMError, _user_message
 from backend.routers import chat
 
 
@@ -11,8 +11,8 @@ def fake_llm(monkeypatch):
     """Replace the real AI call with a fake that answers instantly and records what it receives."""
     calls = []
 
-    def fake_generate_answer(history, question, voice=False):
-        calls.append({"history": history, "question": question, "voice": voice})
+    def fake_generate_answer(history, question, voice=False, image=None):
+        calls.append({"history": history, "question": question, "voice": voice, "image": image})
         return f"Answer to: {question}"
 
     monkeypatch.setattr(chat, "generate_answer", fake_generate_answer)
@@ -31,7 +31,7 @@ def test_chat_returns_and_saves_the_turn(client, fake_llm):
 
 
 def test_chat_stream_sends_text_and_saves_the_turn(client, monkeypatch):
-    def fake_stream_answer(history, question, voice=False):
+    def fake_stream_answer(history, question, voice=False, image=None):
         yield "Answer "
         yield "to: "
         yield question
@@ -81,7 +81,7 @@ def test_chat_with_empty_question_returns_422(client, fake_llm):
 
 
 def test_chat_with_empty_answer_returns_502(client, monkeypatch):
-    monkeypatch.setattr(chat, "generate_answer", lambda history, question, voice=False: "")
+    monkeypatch.setattr(chat, "generate_answer", lambda history, question, voice=False, image=None: "")
 
     conversation_id = client.post("/conversations", json={}).json()["id"]
 
@@ -93,7 +93,7 @@ def test_chat_with_empty_answer_returns_502(client, monkeypatch):
 
 
 def test_chat_when_ai_fails_returns_502(client, monkeypatch):
-    def failing_generate_answer(history, question, voice=False):
+    def failing_generate_answer(history, question, voice=False, image=None):
         raise LLMError("AI is down")
 
     monkeypatch.setattr(chat, "generate_answer", failing_generate_answer)
@@ -102,3 +102,19 @@ def test_chat_when_ai_fails_returns_502(client, monkeypatch):
     response = client.post(f"/conversations/{conversation_id}/chat", json={"question": "Hello"})
 
     assert response.status_code == 502
+
+
+def test_chat_passes_image_to_the_ai(client, fake_llm):
+    conversation_id = client.post("/conversations", json={}).json()["id"]
+
+    client.post(f"/conversations/{conversation_id}/chat", json={"question": "What is this?", "image": "abc123"})
+
+    assert fake_llm[0]["image"] == "abc123"
+
+
+def test_user_message_puts_image_before_text():
+    message = _user_message("What is this?", "abc123")
+
+    assert message["content"][0]["type"] == "image"
+    assert message["content"][0]["source"]["data"] == "abc123"
+    assert message["content"][1] == {"type": "text", "text": "What is this?"}
