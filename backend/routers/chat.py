@@ -1,10 +1,10 @@
-"""Endpoint to ask Claude inside a conversation: the backend loads the history and saves the turn."""
+"""Endpoint to ask the AI inside a conversation: the backend loads the history and saves the turn."""
 
-import anthropic
 from fastapi import APIRouter, HTTPException
-from sqlmodel import Field, SQLModel, select
+from fastapi.responses import StreamingResponse
+from sqlmodel import Field, Session, SQLModel, select
 
-from backend.llm_service import generate_answer
+from backend.llm_service import LLMError, generate_answer, stream_answer
 from backend.dependencies import ConversationDep, SessionDep
 from backend.models import Message
 
@@ -20,20 +20,12 @@ class ChatRequest(SQLModel):
 
 @router.post("")
 def chat(conversation: ConversationDep, data: ChatRequest, session: SessionDep) -> Message:
-    """Ask Claude with the conversation's last turns as context, save both messages and return the answer."""
-    query = (
-        select(Message)
-        .where(Message.conversation_id == conversation.id)
-        .order_by(Message.id.desc())
-        .limit(MAX_HISTORY_TURNS * 2)
-    )
-    history = [{"role": m.role, "content": m.content} for m in reversed(session.exec(query).all())]
-    while history and history[0]["role"] != "user": # Assistant needs the history to start with "user"
-        history.pop()
+    """Ask the AI with the conversation's last turns as context, save both messages and return the answer."""
+    history = _load_history(conversation.id, session)
 
     try:
         answer = generate_answer(history, data.question, data.voice)
-    except anthropic.APIError as e:
+    except LLMError as e:
         raise HTTPException(status_code=502, detail=f"Assistant API error: {e}")
     if not answer:
         raise HTTPException(status_code=502, detail="Assistant returned an empty answer")
@@ -44,3 +36,41 @@ def chat(conversation: ConversationDep, data: ChatRequest, session: SessionDep) 
     session.commit() # Both messages in one transaction: a turn is never saved by halves
     session.refresh(answer_message)
     return answer_message
+
+
+@router.post("/stream")
+def chat_stream(conversation: ConversationDep, data: ChatRequest, session: SessionDep):
+    """Like /chat, but sends the answer as plain text while it is generated. The turn is saved at the end."""
+    history = _load_history(conversation.id, session)
+
+    conversation_id = conversation.id
+
+    def generate():
+        chunks = []
+        for text in stream_answer(history, data.question, data.voice):
+            chunks.append(text)
+            yield text  # Sent to the client right away
+        answer = "".join(chunks)
+        if answer:
+            session.add_all([
+                Message(conversation_id=conversation_id, role="user", content=data.question),
+                Message(conversation_id=conversation_id, role="assistant", content=answer),
+            ])
+            session.commit()
+
+    return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
+
+
+def _load_history(conversation_id, session: Session):
+    """Return the conversation's last turns as role/content dicts, oldest first and starting with a user message."""
+    query = (
+        select(Message)
+        .where(Message.conversation_id == conversation_id)
+        .order_by(Message.id.desc())
+        .limit(MAX_HISTORY_TURNS * 2)
+    )
+
+    history = [{"role": m.role, "content": m.content} for m in reversed(session.exec(query).all())]
+    while history and history[0]["role"] != "user": # Assistant needs the history to start with "user"
+        history.pop(0)
+    return history

@@ -42,8 +42,16 @@ def add_message(conversation_id, role, content):
     return response.json()
 
 
+def chat_stream(conversation_id, question, voice=False):
+    """Ask the backend and yield the answer text as it arrives."""
+    url = f"/conversations/{conversation_id}/chat/stream"
+    with http_client.stream("POST", url, json={"question": question, "voice": voice}, timeout=None) as response:
+        response.raise_for_status()
+        yield from response.iter_text()
+
+
 if __name__ == "__main__":
     conversation = get_latest_conversation() or create_conversation()
-    print("Conversation:", conversation)
-    add_message(conversation["id"], "user", "Hola")
-    print(get_messages(conversation["id"], limit=4))
+    for text in chat_stream(conversation["id"], "Cuéntame un chiste largo"):
+        print(text, end="", flush=True)
+    print()
