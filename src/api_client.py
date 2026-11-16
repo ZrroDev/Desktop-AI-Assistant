@@ -1,4 +1,4 @@
-"""HTTP client for the assistant backend: conversations and messages."""
+"""HTTP client for the assistant backend: conversations, messages and chat."""
 
 import httpx
 
@@ -31,21 +31,12 @@ def get_messages(conversation_id, limit=None):
     return response.json()
 
 
-def add_message(conversation_id, role, content):
-    """Save one message in the conversation and return it."""
-    body = {
-        "role": role,
-        "content": content
-    }
-    response = http_client.post(f"/conversations/{conversation_id}/messages", json=body)
-    response.raise_for_status()
-    return response.json()
-
-
-def chat_stream(conversation_id, question, voice=False):
-    """Ask the backend and yield the answer text as it arrives."""
+def chat_stream(conversation_id, question, voice=False, image=None):
+    """Ask the backend (with an optional base64 screenshot) and yield the answer text as it arrives."""
     url = f"/conversations/{conversation_id}/chat/stream"
-    with http_client.stream("POST", url, json={"question": question, "voice": voice}, timeout=None) as response:
+    body = {"question": question, "voice": voice, "image": image}
+    # No timeout: a long answer can take more than the client's default 5 seconds
+    with http_client.stream("POST", url, json=body, timeout=None) as response:
         response.raise_for_status()
         yield from response.iter_text()
 

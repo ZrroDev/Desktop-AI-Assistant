@@ -1,4 +1,4 @@
-"""Endpoint to ask the AI inside a conversation: the backend loads the history and saves the turn."""
+"""Endpoints to ask the AI inside a conversation: the backend loads the history, calls the AI and saves the turn."""
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -8,15 +8,17 @@ from backend.llm_service import LLMError, generate_answer, stream_answer
 from backend.dependencies import ConversationDep, SessionDep
 from backend.models import Message
 
-MAX_HISTORY_TURNS = 10 # 1 turn = question + answer
+MAX_HISTORY_TURNS = 10  # 1 turn = question + answer
 
 router = APIRouter(prefix="/conversations/{conversation_id}/chat", tags=["chat"])
 
 
 class ChatRequest(SQLModel):
+    """Body of a chat request: the question, whether the answer will be spoken, and an optional screenshot."""
+
     question: str = Field(min_length=1)
     voice: bool = False
-    image: str | None = None # Screenshot as base64 PNG, used only for this question (never saved)
+    image: str | None = None  # Screenshot as base64 PNG, used only for this question (never saved)
 
 
 @router.post("")
@@ -34,7 +36,7 @@ def chat(conversation: ConversationDep, data: ChatRequest, session: SessionDep) 
     question_message = Message(conversation_id=conversation.id, role="user", content=data.question)
     answer_message = Message(conversation_id=conversation.id, role="assistant", content=answer)
     session.add_all([question_message, answer_message])
-    session.commit() # Both messages in one transaction: a turn is never saved by halves
+    session.commit()  # Both messages in one transaction: a turn is never saved by halves
     session.refresh(answer_message)
     return answer_message
 

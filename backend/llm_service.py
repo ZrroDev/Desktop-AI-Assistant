@@ -3,8 +3,10 @@
 import anthropic
 from dotenv import load_dotenv
 
+
 class LLMError(Exception):
     """Raised when the AI provider fails, whatever provider it is."""
+
 
 # Model settings
 MODEL = "claude-opus-5-5"
@@ -26,7 +28,7 @@ def generate_answer(history, question, voice=False, image=None):
     """Send the history plus the new question to the AI and return the answer text."""
     system_prompt = _system_prompt(voice)
 
-    try:   
+    try:
         response = client.messages.create(
             model=MODEL,
             max_tokens=MAX_TOKENS,

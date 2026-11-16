@@ -8,19 +8,9 @@ from fastapi import APIRouter, HTTPException
 from sqlmodel import select
 
 from backend.dependencies import ConversationDep, SessionDep
-from backend.models import Message, MessageCreate
+from backend.models import Message
 
 router = APIRouter(prefix="/conversations/{conversation_id}/messages", tags=["messages"])
-
-
-@router.post("", status_code=201)
-def add_message(conversation: ConversationDep, data: MessageCreate, session: SessionDep) -> Message:
-    """Add a message to the conversation."""
-    message = Message(conversation_id=conversation.id, role=data.role, content=data.content)
-    session.add(message)
-    session.commit()
-    session.refresh(message)  # Reload it to get the id and created_at
-    return message
 
 
 @router.get("")

@@ -1,4 +1,4 @@
-"""Screen capture helpers that produce image blocks for the Claude API."""
+"""Screen capture helper: takes a screenshot and returns it as base64 PNG text for the backend."""
 
 import base64
 import io
@@ -6,14 +6,14 @@ import io
 import mss
 from PIL import Image
 
-# Longest side (in pixels) of the image sent to Claude. Current models accept
+# Longest side (in pixels) of the image sent to the AI. Current models accept
 # up to 2576 px, but image token cost grows with area; 1920 keeps a 1080p
 # screen untouched while shrinking larger ones (1440p, 4K) to 1920x1080.
 MAX_EDGE = 1920
 
 
-def capture_screen(monitor: int = 1) -> dict:
-    """Capture a monitor and return it as a base64 PNG image block for the Claude API.
+def capture_screen(monitor: int = 1) -> str:
+    """Capture a monitor and return it as a base64 PNG string, ready to send in a JSON request.
 
     Args:
         monitor: mss monitor index. 1 = main monitor, 2+ = others, 0 = all monitors combined.
@@ -31,13 +31,7 @@ def capture_screen(monitor: int = 1) -> dict:
     img.thumbnail((MAX_EDGE, MAX_EDGE))
 
     # Encode to PNG in memory, then to base64 text so it fits in the JSON request.
-    # The API decodes it back to the original image on its side.
+    # The backend passes it to the AI, which decodes it back to the image.
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
-    data = base64.standard_b64encode(buffer.getvalue()).decode("utf-8")
-
-    # Image content block in the format the Messages API expects.
-    return {
-        "type": "image",
-        "source": {"type": "base64", "media_type": "image/png", "data": data},
-    }
+    return base64.standard_b64encode(buffer.getvalue()).decode("utf-8")

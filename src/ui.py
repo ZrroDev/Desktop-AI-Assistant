@@ -5,7 +5,7 @@ import threading
 import tkinter as tk
 import unicodedata
 
-from src.assistant import ask, new_conversation, load_history, speaker
+from src.assistant import ask, new_conversation, load_conversation, speaker
 from src.hotkeys import PushToTalk, start_hotkey
 from src.screen_capture import capture_screen
 from src.stt import SAMPLE_RATE, Recorder, transcribe
@@ -65,7 +65,7 @@ class InputWindow:
         # Screenshot taken on the hotkey, sent with the next question
         self.pending_image = None
 
-        # Set while Claude is answering
+        # Set while the assistant is answering
         self.busy = threading.Event()
 
         # Microphone recording for push-to-talk
@@ -81,7 +81,7 @@ class InputWindow:
 
     def run(self):
         """Load the chat history, start the hotkey listener and the Tk main loop (blocks until quit)."""
-        load_history()
+        load_conversation()
         self.listener = start_hotkey(lambda: self.events.put("show"))
         self.ptt = PushToTalk(lambda: self.events.put("ptt_down"), lambda: self.events.put("ptt_up"))
         self.ptt.start()
@@ -105,7 +105,7 @@ class InputWindow:
         self.entry.focus_set()
 
     def on_submit(self, event=None):
-        """Send the question (and the screenshot, if checked) to Claude, then hide the window."""
+        """Send the question (and the screenshot, if checked) to the assistant, then hide the window."""
         # Only one question at a time: keep the text and screenshot to send
         if self.busy.is_set():
             print("Wait, there is an answer incoming")
@@ -123,7 +123,7 @@ class InputWindow:
 
         self.busy.set()  # Cleared by _ask_in_background when the answer ends
 
-        # Ask in a background thread so the window doesn't freeze while Claude answers;
+        # Ask in a background thread so the window doesn't freeze while the assistant answers;
         # the reply streams to the terminal (and is spoken if voice). daemon=True: it won't keep the app alive on quit
         threading.Thread(target=self._ask_in_background, args=(question, image, voice), daemon=True).start()
 
@@ -137,7 +137,7 @@ class InputWindow:
         self.pending_image = None
 
     def on_new_conversation(self):
-        """Start a new conversation, unless Claude is still answering."""
+        """Start a new conversation, unless the assistant is still answering."""
         if self.busy.is_set():
             print("Cannot start a new conversation while the assistant is busy")
             return
@@ -146,7 +146,7 @@ class InputWindow:
     # --- Internal ---
 
     def _ask_in_background(self, question, image, voice):
-        """Runs in a worker thread: ask Claude, then mark the assistant as free."""
+        """Runs in a worker thread: ask the assistant, then mark it as free."""
         try:
             ask(question, image, voice)
             if voice:
@@ -181,7 +181,7 @@ class InputWindow:
         self.root.after(POLL_INTERVAL_MS, self._poll)
 
     def _voice_in_background(self, audio, voice, image):
-        """Runs in a worker thread: transcribe the recording, then ask Claude."""
+        """Runs in a worker thread: transcribe the recording, then ask the assistant."""
         try:
             text = transcribe(audio)
             if not text:  # Only silence or noise

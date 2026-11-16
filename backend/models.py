@@ -14,15 +14,19 @@ def utc_now():
 # --- Tables (table=True) ---
 
 class Conversation(SQLModel, table=True):
+    """A chat session; its messages are deleted with it (ON DELETE CASCADE)."""
+
     id: int | None = Field(default=None, primary_key=True)  # None until the database assigns it
     title: str = "New conversation"
     created_at: datetime = Field(default_factory=utc_now)  # default_factory: evaluated on every new row
 
 
 class Message(SQLModel, table=True):
+    """One turn side (question or answer) inside a conversation."""
+
     id: int | None = Field(default=None, primary_key=True)
     conversation_id: int = Field(foreign_key="conversation.id", ondelete="CASCADE", index=True)
-    role: str  # "user" or "assistant", validated by MessageCreate
+    role: str  # "user" or "assistant", set by the chat endpoints
     content: str
     created_at: datetime = Field(default_factory=utc_now)
 
@@ -35,8 +39,3 @@ class ConversationCreate(SQLModel):
 
 class ConversationUpdate(SQLModel):
     title: str | None = Field(default=None, min_length=1)  # Only the fields sent are changed
-
-
-class MessageCreate(SQLModel):
-    role: Literal["user", "assistant"]
-    content: str = Field(min_length=1)  # The Claude API rejects empty messages

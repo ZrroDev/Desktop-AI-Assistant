@@ -1,22 +1,7 @@
 """Tests for the /conversations/{id}/chat endpoint, with the AI replaced by a fake."""
 
-import pytest
-
 from backend.llm_service import LLMError, _user_message
 from backend.routers import chat
-
-
-@pytest.fixture
-def fake_llm(monkeypatch):
-    """Replace the real AI call with a fake that answers instantly and records what it receives."""
-    calls = []
-
-    def fake_generate_answer(history, question, voice=False, image=None):
-        calls.append({"history": history, "question": question, "voice": voice, "image": image})
-        return f"Answer to: {question}"
-
-    monkeypatch.setattr(chat, "generate_answer", fake_generate_answer)
-    return calls
 
 
 def test_chat_returns_and_saves_the_turn(client, fake_llm):
